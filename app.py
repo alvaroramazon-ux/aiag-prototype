@@ -433,6 +433,11 @@ authorized_ids = get_authorized_ids()
 
 # ----------------- CONTROL DE VISTAS (INVESTIGADOR VS. ESTUDIANTE) -----------------
 
+# Manejar petición de cierre de sesión antes de que se creen los widgets
+if st.session_state.get("logout_requested", False):
+    st.session_state["admin_pwd_widget"] = ""
+    st.session_state["logout_requested"] = False
+
 # Obtener la contraseña desde el estado de la sesión para evitar NameError
 admin_password = st.session_state.get("admin_pwd_widget", "")
 is_admin = (admin_password == INVESTIGADOR_PASSWORD)
@@ -465,7 +470,7 @@ with st.sidebar:
         
         # Botón para cerrar sesión de investigador
         if st.button("🚪 Volver al Chat (Cerrar Sesión)"):
-            st.session_state["admin_pwd_widget"] = ""
+            st.session_state["logout_requested"] = True
             st.rerun()
     else:
         # Configuración del Estudiante
