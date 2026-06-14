@@ -433,6 +433,8 @@ authorized_ids = get_authorized_ids()
 
 # ----------------- CONTROL DE VISTAS (INVESTIGADOR VS. ESTUDIANTE) -----------------
 
+# Obtener la contraseña desde el estado de la sesión para evitar NameError
+admin_password = st.session_state.get("admin_pwd_widget", "")
 is_admin = (admin_password == INVESTIGADOR_PASSWORD)
 
 # BARRA LATERAL (Sidebar)
