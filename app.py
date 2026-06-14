@@ -247,41 +247,54 @@ Por favor, comunícate inmediatamente con la **Línea de la Vida al 800 911 2000
 # ----------------- FUNCIONES DE PERSISTENCIA -----------------
 
 def get_authorized_ids():
-    """Lee el archivo de IDs pre-autorizados o crea uno con la columna de sesión actual."""
+    """Lee el archivo de IDs pre-autorizados o crea uno con las columnas de sesión, grupo y scores."""
     filename = "authorized_ids.csv"
     
     # Crear archivo si no existe
     if not os.path.exists(filename):
         with open(filename, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["id", "cohorte", "current_session"])
+            writer.writerow(["id", "cohorte", "current_session", "grupo", "pre_grit", "pre_lp", "post_grit", "post_lp"])
             writer.writerows([
-                ["PILOTO-01", "piloto", "1"],
-                ["PILOTO-02", "piloto", "1"],
-                ["PILOTO-03", "piloto", "1"],
-                ["EST-101", "licenciatura", "1"],
-                ["EST-102", "licenciatura", "1"]
+                ["PILOTO-01", "piloto", "1", "experimental", "", "", "", ""],
+                ["PILOTO-02", "piloto", "1", "control", "", "", "", ""],
+                ["PILOTO-03", "piloto", "1", "experimental", "", "", "", ""],
+                ["EST-101", "licenciatura", "1", "experimental", "", "", "", ""],
+                ["EST-102", "licenciatura", "1", "control", "", "", "", ""]
             ])
             
-    # Leer archivo
+    # Leer archivo y verificar columnas
     ids = {}
-    has_session_col = False
+    has_new_cols = False
     
     with open(filename, "r", encoding="utf-8") as f:
         reader = csv.reader(f)
         header = next(reader, None)
-        if header and "current_session" in header:
-            has_session_col = True
+        if header and "grupo" in header:
+            has_new_cols = True
             
-    if not has_session_col:
-        # Migrar archivo al nuevo formato de 3 columnas
+    if not has_new_cols:
+        # Migrar archivo al nuevo formato de 8 columnas
         temp_ids = {}
         with open(filename, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 student_id = row.get("id")
+                if not student_id:
+                    continue
                 cohorte = row.get("cohorte", "piloto")
-                temp_ids[student_id] = {"cohorte": cohorte, "current_session": "1"}
+                current_session = row.get("current_session", "1")
+                # Asignar grupo (EST-102 y PILOTO-02 son control por defecto, otros experimental)
+                grupo = "control" if student_id in ["EST-102", "PILOTO-02"] else "experimental"
+                temp_ids[student_id] = {
+                    "cohorte": cohorte, 
+                    "current_session": current_session,
+                    "grupo": grupo,
+                    "pre_grit": row.get("pre_grit", ""),
+                    "pre_lp": row.get("pre_lp", ""),
+                    "post_grit": row.get("post_grit", ""),
+                    "post_lp": row.get("post_lp", "")
+                }
         save_authorized_ids(temp_ids)
         return temp_ids
     else:
@@ -289,20 +302,36 @@ def get_authorized_ids():
             reader = csv.DictReader(f)
             for row in reader:
                 student_id = row.get("id")
+                if not student_id:
+                    continue
                 ids[student_id] = {
                     "cohorte": row.get("cohorte", "piloto"),
-                    "current_session": row.get("current_session", "1")
+                    "current_session": row.get("current_session", "1"),
+                    "grupo": row.get("grupo", "experimental"),
+                    "pre_grit": row.get("pre_grit", ""),
+                    "pre_lp": row.get("pre_lp", ""),
+                    "post_grit": row.get("post_grit", ""),
+                    "post_lp": row.get("post_lp", "")
                 }
         return ids
 
 def save_authorized_ids(ids_dict):
-    """Guarda el diccionario de IDs autorizados de vuelta al archivo CSV."""
+    """Guarda el diccionario de IDs autorizados de vuelta al archivo CSV con todas las columnas."""
     filename = "authorized_ids.csv"
     with open(filename, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["id", "cohorte", "current_session"])
+        writer.writerow(["id", "cohorte", "current_session", "grupo", "pre_grit", "pre_lp", "post_grit", "post_lp"])
         for student_id, data in ids_dict.items():
-            writer.writerow([student_id, data["cohorte"], data["current_session"]])
+            writer.writerow([
+                student_id, 
+                data["cohorte"], 
+                data["current_session"],
+                data.get("grupo", "experimental"),
+                data.get("pre_grit", ""),
+                data.get("pre_lp", ""),
+                data.get("post_grit", ""),
+                data.get("post_lp", "")
+            ])
 
 def load_chat_logs():
     """Carga todo el historial de conversaciones guardado en el archivo CSV."""
@@ -427,6 +456,102 @@ def get_simulated_response(user_message, history_length, session_num):
     else:
         return "Módulo completado."
 
+# CUESTIONARIOS PSICOMÉTRICOS INTEGRADOS NATIVAMENTE
+
+GRIT_QUESTIONS = [
+    "1. A menudo me interesan nuevos proyectos o temas, pero luego me distraigo de ellos.",
+    "2. Los contratiempos no me desaniman. No me rindo fácilmente.",
+    "3. A menudo me pongo una meta, pero luego elijo seguir otra diferente.",
+    "4. Soy un trabajador muy dedicado y esforzado.",
+    "5. Me cuesta mantener el enfoque en proyectos que toman unos meses completar.",
+    "6. Termino todo lo que empiezo.",
+    "7. Mis intereses cambian de un año a otro.",
+    "8. Soy diligente. Nunca me doy por vencido."
+]
+
+LP_QUESTIONS = [
+    "1. En mis equipos de la universidad, fomento un ambiente de optimismo, confianza y respeto mutuo.",
+    "2. Suelo expresar gratitud y reconocimiento sincero a mis compañeros por sus contribuciones.",
+    "3. Busco activamente apoyar y alentar a mis compañeros cuando enfrentan dificultades académicas o personales.",
+    "4. Me esfuerzo por construir relaciones de colaboración sólidas y constructivas en mis equipos.",
+    "5. Cuando doy retroalimentación a otros, me enfoco en sus fortalezas y en cómo pueden mejorar, en lugar de solo señalar errores.",
+    "6. Me comunico de manera asertiva, evitando comentarios destructivos o críticas no constructivas.",
+    "7. Conecto las tareas y proyectos académicos con un sentido de trascendencia o impacto positivo en la sociedad.",
+    "8. Ayudo a mis compañeros a ver el valor y el significado profundo de los proyectos que realizamos juntos."
+]
+
+def render_psychometric_survey(student_id, survey_type="pre"):
+    title = "Cuestionario de Diagnóstico Inicial (Pre-test)" if survey_type == "pre" else "Cuestionario de Evaluación Final (Post-test)"
+    st.markdown(f'<div class="forms-card" style="border-left-color: #1e3c72; padding: 1.5rem; background-color: #f7f9fc; border-radius: 8px; margin-bottom: 2rem; border-left-width: 5px; border-left-style: solid;">', unsafe_allow_html=True)
+    st.markdown(f'<h2 style="color: #1e3c72; margin-top: 0; font-weight: 800; font-size:1.4rem;">📋 {title}</h2>', unsafe_allow_html=True)
+    st.markdown("Por favor, lee con atención cada reactivo y selecciona la opción que mejor describa tu comportamiento usual. Es obligatorio contestar todos los reactivos para continuar.")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    with st.form(key=f"survey_form_{survey_type}"):
+        # Grit-S Questions
+        st.markdown('<p style="font-weight: 800; font-size: 1.2rem; color: #1e3c72; border-bottom: 2px solid #e0e0e0; padding-bottom: 0.3rem; margin-top:0.5rem;">Parte 1: Hábitos de Trabajo y Consistencia (Escala GRIT)</p>', unsafe_allow_html=True)
+        grit_answers = []
+        grit_options = [
+            "1. Nada parecido a mí",
+            "2. Poco parecido a mí",
+            "3. Algo parecido a mí",
+            "4. Bastante parecido a mí",
+            "5. Muy parecido a mí"
+        ]
+        for i, q in enumerate(GRIT_QUESTIONS):
+            ans = st.radio(q, grit_options, index=2, key=f"grit_{survey_type}_{i}")
+            val = int(ans.split(".")[0])
+            grit_answers.append(val)
+            
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Liderazgo Positivo Questions
+        st.markdown('<p style="font-weight: 800; font-size: 1.2rem; color: #1e3c72; border-bottom: 2px solid #e0e0e0; padding-bottom: 0.3rem; margin-top:0.5rem;">Parte 2: Habilidades de Liderazgo y Colaboración (Liderazgo Positivo)</p>', unsafe_allow_html=True)
+        lp_answers = []
+        lp_options = [
+            "1. Totalmente en desacuerdo",
+            "2. En desacuerdo",
+            "3. Neutral",
+            "4. De acuerdo",
+            "5. Totalmente de acuerdo"
+        ]
+        for i, q in enumerate(LP_QUESTIONS):
+            ans = st.radio(q, lp_options, index=2, key=f"lp_{survey_type}_{i}")
+            val = int(ans.split(".")[0])
+            lp_answers.append(val)
+            
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        submit_btn = st.form_submit_button("💾 Enviar y Registrar Cuestionario")
+        
+        if submit_btn:
+            # Calcular scores de GRIT
+            # Items invertidos: 1, 3, 5, 7 (índices 0, 2, 4, 6)
+            reversed_indices = [0, 2, 4, 6]
+            grit_processed = []
+            for idx, val in enumerate(grit_answers):
+                if idx in reversed_indices:
+                    grit_processed.append(6 - val)
+                else:
+                    grit_processed.append(val)
+            
+            avg_grit = sum(grit_processed) / len(grit_processed)
+            avg_lp = sum(lp_answers) / len(lp_answers)
+            
+            # Guardar en base de datos
+            auth_ids = get_authorized_ids()
+            if student_id in auth_ids:
+                if survey_type == "pre":
+                    auth_ids[student_id]["pre_grit"] = f"{avg_grit:.2f}"
+                    auth_ids[student_id]["pre_lp"] = f"{avg_lp:.2f}"
+                else:
+                    auth_ids[student_id]["post_grit"] = f"{avg_grit:.2f}"
+                    auth_ids[student_id]["post_lp"] = f"{avg_lp:.2f}"
+                    
+                save_authorized_ids(auth_ids)
+                st.success("¡Respuestas registradas con éxito!")
+                st.rerun()
+
 # ----------------- INICIALIZACIÓN DE VARIABLES -----------------
 
 authorized_ids = get_authorized_ids()
@@ -514,6 +639,26 @@ if is_admin:
     logs = load_chat_logs()
     total_turns = len(logs)
     
+    # Buscar participantes con alertas de crisis
+    crisis_participants = []
+    for row in logs:
+        if row.get("safety_triggered", "False") == "True":
+            crisis_participants.append(row.get("student_id", "DESCONOCIDO"))
+            
+    if len(crisis_participants) > 0:
+        unique_crisis = list(set(crisis_participants))
+        st.markdown(f"""
+        <div class="safety-alert" style="border-left-color: #d32f2f; background-color: #ffebee; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem; border-left-width: 5px; border-left-style: solid;">
+            <h3 style="color: #d32f2f; margin-top: 0; font-weight: 800; font-size:1.2rem; margin-bottom:0.5rem;">🚨 ALERTA DE SEGURIDAD EMOCIONAL (Capa 0)</h3>
+            <p style="font-size: 0.95rem; margin-bottom: 0; color: #333;">
+                Se han detectado activaciones del filtro de crisis emocional para los siguientes códigos de participantes: 
+                {", ".join([f"<b>{pid}</b>" for pid in unique_crisis])}.
+                <br>
+                Por favor, proceda a la revisión de logs de manera inmediata y active el protocolo de derivación a revisión humana.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    
     # Calcular métricas del dashboard
     unique_participants = set()
     grit_signals_count = 0
@@ -596,7 +741,13 @@ if is_admin:
         """, unsafe_allow_html=True)
         
     # Crear pestañas del panel
-    tab_sesiones, tab_logs, tab_codigos = st.tabs(["Sesiones", "Logs anonimizados", "Códigos de acceso"])
+    tab_sesiones, tab_psicometria, tab_qualitative, tab_logs, tab_codigos = st.tabs([
+        "Sesiones", 
+        "Análisis Psicométrico", 
+        "Análisis Cualitativo (IA)", 
+        "Logs anonimizados", 
+        "Códigos de acceso"
+    ])
     
     # Pestaña 1: Sesiones
     with tab_sesiones:
@@ -613,6 +764,7 @@ if is_admin:
                 table_data.append({
                     "Participante (hash)": h_id,
                     "Cohorte": stats["cohorte"],
+                    "Grupo": authorized_ids.get(orig_id, {}).get("grupo", "experimental").capitalize() if orig_id in authorized_ids else "N/A",
                     "Módulo": modulos,
                     "Turnos": stats["turnos"],
                     "GRIT": stats["grit"],
@@ -620,6 +772,158 @@ if is_admin:
                     "Capa 0": stats["capa_0"]
                 })
             st.table(table_data)
+            
+    # Pestaña 2: Análisis Psicométrico
+    with tab_psicometria:
+        st.markdown("### Resultados Psicométricos Cuantitativos (Pre vs. Post)")
+        
+        # Procesar datos
+        table_psic = []
+        exp_grit_deltas = []
+        exp_lp_deltas = []
+        ctrl_grit_deltas = []
+        ctrl_lp_deltas = []
+        
+        for s_id, data in authorized_ids.items():
+            pre_grit = data.get("pre_grit", "")
+            pre_lp = data.get("pre_lp", "")
+            post_grit = data.get("post_grit", "")
+            post_lp = data.get("post_lp", "")
+            grupo = data.get("grupo", "experimental")
+            
+            # Convertir a flotantes si existen
+            v_pre_grit = float(pre_grit) if pre_grit else None
+            v_post_grit = float(post_grit) if post_grit else None
+            delta_grit = v_post_grit - v_pre_grit if (v_pre_grit is not None and v_post_grit is not None) else None
+            
+            v_pre_lp = float(pre_lp) if pre_lp else None
+            v_post_lp = float(post_lp) if post_lp else None
+            delta_lp = v_post_lp - v_pre_lp if (v_pre_lp is not None and v_post_lp is not None) else None
+            
+            # Añadir a listas agregadas para promedios
+            if delta_grit is not None:
+                if grupo == "control":
+                    ctrl_grit_deltas.append(delta_grit)
+                else:
+                    exp_grit_deltas.append(delta_grit)
+                    
+            if delta_lp is not None:
+                if grupo == "control":
+                    ctrl_lp_deltas.append(delta_lp)
+                else:
+                    exp_lp_deltas.append(delta_lp)
+            
+            table_psic.append({
+                "ID Estudiante": s_id,
+                "Grupo": grupo.capitalize(),
+                "Pre-GRIT": f"{v_pre_grit:.2f}" if v_pre_grit is not None else "N/A",
+                "Post-GRIT": f"{v_post_grit:.2f}" if v_post_grit is not None else "N/A",
+                "Delta GRIT": f"{delta_grit:+.2f}" if delta_grit is not None else "N/A",
+                "Pre-LP": f"{v_pre_lp:.2f}" if v_pre_lp is not None else "N/A",
+                "Post-LP": f"{v_post_lp:.2f}" if v_post_lp is not None else "N/A",
+                "Delta LP": f"{delta_lp:+.2f}" if delta_lp is not None else "N/A"
+            })
+            
+        # Comparación de promedios
+        col_avg1, col_avg2 = st.columns(2)
+        with col_avg1:
+            st.markdown("#### Promedios de Cambio en GRIT (Post - Pre)")
+            avg_exp_grit = sum(exp_grit_deltas) / len(exp_grit_deltas) if len(exp_grit_deltas) > 0 else 0.0
+            avg_ctrl_grit = sum(ctrl_grit_deltas) / len(ctrl_grit_deltas) if len(ctrl_grit_deltas) > 0 else 0.0
+            st.metric(label="Grupo Experimental", value=f"{avg_exp_grit:+.2f}", delta=f"{avg_exp_grit - avg_ctrl_grit:+.2f} vs Ctrl")
+            st.metric(label="Grupo Control (Placebo)", value=f"{avg_ctrl_grit:+.2f}")
+            
+        with col_avg2:
+            st.markdown("#### Promedios de Cambio en Liderazgo Positivo")
+            avg_exp_lp = sum(exp_lp_deltas) / len(exp_lp_deltas) if len(exp_lp_deltas) > 0 else 0.0
+            avg_ctrl_lp = sum(ctrl_lp_deltas) / len(ctrl_lp_deltas) if len(ctrl_lp_deltas) > 0 else 0.0
+            st.metric(label="Grupo Experimental", value=f"{avg_exp_lp:+.2f}", delta=f"{avg_exp_lp - avg_ctrl_lp:+.2f} vs Ctrl")
+            st.metric(label="Grupo Control (Placebo)", value=f"{avg_ctrl_lp:+.2f}")
+            
+        st.markdown("---")
+        st.markdown("#### Detalle Individual por Alumno")
+        st.table(table_psic)
+            
+    # Pestaña 3: Análisis Cualitativo por IA
+    with tab_qualitative:
+        st.markdown("### Análisis Cualitativo de Conversación Asistido por IA")
+        st.markdown("Esta herramienta utiliza el modelo Gemini para realizar una codificación cualitativa y resumir el progreso psicológico del participante basándose en sus logs de chat.")
+        
+        all_students_list = list(unique_participants)
+        if len(all_students_list) == 0:
+            st.info("Aún no hay estudiantes con conversaciones registradas.")
+        else:
+            selected_student_for_ai = st.selectbox("Selecciona un estudiante para analizar:", all_students_list, key="ai_student_select")
+            
+            # Recuperar logs del estudiante
+            student_messages = [r for r in logs if r.get("student_id") == selected_student_for_ai]
+            
+            st.markdown(f"**Turnos de conversación de este estudiante:** {len(student_messages)}")
+            
+            if len(student_messages) == 0:
+                st.info("Este estudiante no tiene interacciones registradas en el chat.")
+            else:
+                # Mostrar vista previa de los logs
+                with st.expander("Ver transcripción de la conversación"):
+                    for msg_row in student_messages:
+                        st.markdown(f"**Sesión {msg_row.get('session')}:**")
+                        st.markdown(f"*Estudiante:* {msg_row.get('user_message')}")
+                        st.markdown(f"*Coach/Sistema:* {msg_row.get('ai_response')}")
+                        st.markdown("---")
+                
+                # Botón de ejecución
+                if st.button("🔍 Generar Reporte de Análisis Psicológico", key="btn_run_ai_analysis"):
+                    # Compilar la transcripción para el modelo
+                    transcription = ""
+                    for idx, msg_row in enumerate(student_messages):
+                        transcription += f"Sesión {msg_row.get('session')} - Estudiante: {msg_row.get('user_message')}\n"
+                        transcription += f"Sesión {msg_row.get('session')} - Coach/Sistema: {msg_row.get('ai_response')}\n\n"
+                    
+                    # Cargar API Key
+                    temp_api_key = api_key
+                    if not temp_api_key and "GEMINI_API_KEY" in st.secrets:
+                        temp_api_key = st.secrets["GEMINI_API_KEY"]
+                        
+                    if not temp_api_key:
+                        st.error("⚠️ No se ha proporcionado una API Key de Gemini en la barra lateral.")
+                    else:
+                        with st.spinner("Analizando la conversación con Gemini..."):
+                            try:
+                                from google import genai
+                                from google.genai import types
+                                
+                                client = genai.Client(api_key=temp_api_key)
+                                
+                                analysis_prompt = f"""
+Actúa como un PhD en Psicología Organizacional y experto en coaching de liderazgo. Analiza la siguiente transcripción de un estudiante universitario en un proceso de 5 sesiones de coaching de Inteligencia Artificial (AIAG).
+
+El objetivo es evaluar y reportar indicadores cualitativos sobre:
+1. **Mentalidad de Crecimiento (Growth Mindset)**: Creencias sobre la capacidad de desarrollo, respuesta al error y reencuadre cognitivo.
+2. **GRIT**:
+   - Resiliencia y perseverancia del esfuerzo (tenacidad).
+   - Consistencia de interés (enfoque en metas de largo plazo, propósito).
+3. **Liderazgo Positivo**: Optimismo, comunicación constructiva, relaciones de apoyo o propósito positivo.
+4. **Obstáculos Clave**: Identifica los problemas principales que el estudiante reporta (ej: sobrecarga académica, aburrimiento, falta de confianza).
+5. **Evolución Temporal**: ¿Hubo cambio en la narrativa o el tono del estudiante desde la sesión 1 hasta la sesión 5?
+
+Aquí está la transcripción:
+---
+{transcription}
+---
+
+Por favor, estructura tu reporte en formato Markdown usando títulos claros y viñetas breves. Sé académico, objetivo y aporta valor al investigador de la tesis.
+"""
+                                
+                                response = client.models.generate_content(
+                                    model='gemini-2.5-flash',
+                                    contents=analysis_prompt,
+                                )
+                                
+                                st.markdown("### 📄 Reporte Cualitativo Generado por IA")
+                                st.markdown(response.text)
+                                
+                            except Exception as e:
+                                st.error(f"Error al conectar con Gemini: {str(e)}")
             
     # Pestaña 2: Logs anonimizados
     with tab_logs:
@@ -643,22 +947,32 @@ if is_admin:
                         st.markdown(f"🤖 **AIAG Coach:** {row.get('ai_response')}")
                     st.markdown("---")
                     
-    # Pestaña 3: Códigos de acceso
+    # Pestaña 5: Códigos de acceso
     with tab_codigos:
         st.markdown("### Gestión de Códigos de Acceso")
         
-        # Formulario para agregar nuevo ID
+        # Formulario para registrar nuevo ID
         st.markdown("#### Registrar nuevo estudiante")
-        col_new_id, col_new_cohorte, col_btn = st.columns([3, 2, 1])
+        col_new_id, col_new_coh, col_new_grp, col_btn = st.columns([2, 2, 2, 1])
         with col_new_id:
             new_id = st.text_input("Código de ID único:", placeholder="Ej: EST-002", key="new_student_id_input").strip()
-        with col_new_cohorte:
-            new_cohort = st.selectbox("Cohorte/Grupo:", ["piloto", "experimental", "control"], key="new_cohort_select")
+        with col_new_coh:
+            new_cohort = st.text_input("Cohorte:", value="licenciatura", key="new_cohort_input").strip()
+        with col_new_grp:
+            new_group = st.selectbox("Grupo/Condición:", ["experimental", "control"], key="new_group_select")
         with col_btn:
             st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
             if st.button("➕ Registrar", key="btn_register_student"):
                 if new_id:
-                    authorized_ids[new_id] = {"cohorte": new_cohort, "current_session": "1"}
+                    authorized_ids[new_id] = {
+                        "cohorte": new_cohort, 
+                        "current_session": "1",
+                        "grupo": new_group,
+                        "pre_grit": "",
+                        "pre_lp": "",
+                        "post_grit": "",
+                        "post_lp": ""
+                    }
                     save_authorized_ids(authorized_ids)
                     st.success(f"ID {new_id} registrado con éxito.")
                     st.rerun()
@@ -669,21 +983,25 @@ if is_admin:
         st.markdown("#### Códigos actualmente autorizados")
         
         for k, v in list(authorized_ids.items()):
-            col_id, col_coh, col_sess, col_actions = st.columns([2, 2, 2, 2])
+            col_id, col_coh, col_sess, col_actions = st.columns([2, 3, 2, 2])
             with col_id:
                 st.markdown(f"**ID:** `{k}`")
             with col_coh:
-                st.markdown(f"Grupo: `{v['cohorte']}`")
+                st.markdown(f"Cohorte: `{v.get('cohorte', 'piloto')}` | Grupo: `{v.get('grupo', 'experimental').capitalize()}`")
             with col_sess:
                 sess_label = "Completado" if v['current_session'] == "completed" else f"Sesión {v['current_session']}/5"
                 st.markdown(f"Progreso: **{sess_label}**")
             with col_actions:
                 col_btn_reset, col_btn_del = st.columns(2)
                 with col_btn_reset:
-                    if st.button("🔄 Reiniciar", key=f"reset_{k}", help="Reiniciar progreso a Sesión 1"):
+                    if st.button("🔄 Reiniciar", key=f"reset_{k}", help="Reiniciar progreso y scores"):
                         authorized_ids[k]["current_session"] = "1"
+                        authorized_ids[k]["pre_grit"] = ""
+                        authorized_ids[k]["pre_lp"] = ""
+                        authorized_ids[k]["post_grit"] = ""
+                        authorized_ids[k]["post_lp"] = ""
                         save_authorized_ids(authorized_ids)
-                        st.success(f"Progreso de {k} reiniciado.")
+                        st.success(f"ID {k} reiniciado.")
                         st.rerun()
                 with col_btn_del:
                     if st.button("🗑️ Borrar", key=f"del_{k}"):
@@ -697,8 +1015,6 @@ if is_admin:
 
 else:
     # Inicializar estados de cuestionario
-    if "pre_test_done" not in st.session_state:
-        st.session_state.pre_test_done = False
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
@@ -727,153 +1043,185 @@ else:
         
         # 1. EVALUAR SI YA COMPLETÓ EL EXPERIMENTO COMPLETO
         if current_session == "completed":
-            st.markdown(f"""
-            <div class="forms-card" style="border-left-color: #2e7d32; background-color: #e8f5e9;">
-                <p style="font-weight: 800; font-size: 1.25rem; color: #2e7d32; margin-bottom: 0.5rem;">Fase final: Cuestionario de Salida (Post-test)</p>
-                <p style="font-size: 0.95rem; margin-bottom: 1rem;">
-                    ¡Muchas felicidades! Has completado con éxito tus 5 sesiones de coaching de Liderazgo Positivo y GRIT. 
-                    Para finalizar formalmente tu participación y registrar tus datos, por favor contesta el cuestionario de salida en Google Forms:
-                </p>
-                <a href="{URL_POST_TEST}" target="_blank" style="background-color: #2e7d32; color: white; padding: 0.7rem 1.4rem; border-radius: 6px; text-decoration: none; font-weight: 600; display: inline-block; margin-bottom: 1rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                    📝 Ir al Google Form (Post-test)
-                </a>
-            </div>
-            """, unsafe_allow_html=True)
-            st.info("El chat se encuentra cerrado de manera definitiva. ¡Gracias por tu valiosa participación!")
+            post_grit = student_data.get("post_grit", "")
             
-        # 2. EVALUAR SI DEBE LLENAR EL PRE-TEST (Solo antes de iniciar la Sesión 1)
-        elif current_session == "1" and not st.session_state.pre_test_done:
-            st.markdown(f"""
-            <div class="forms-card">
-                <p style="font-weight: 800; font-size: 1.25rem; color: #1e3c72; margin-bottom: 0.5rem;">Fase 1: Cuestionario Inicial (Pre-test)</p>
-                <p style="font-size: 0.95rem; margin-bottom: 1rem;">
-                    Bienvenido/a al estudio. Antes de poder iniciar tus conversaciones con el Coach de IA, 
-                    es requisito metodológico obligatorio que contestes el cuestionario de diagnóstico inicial en Google Forms:
-                </p>
-                <a href="{URL_PRE_TEST}" target="_blank" style="background-color: #2a5298; color: white; padding: 0.7rem 1.4rem; border-radius: 6px; text-decoration: none; font-weight: 600; display: inline-block; margin-bottom: 1rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                    📝 Ir al Google Form (Pre-test)
-                </a>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            if st.button("✅ Ya completé el cuestionario, iniciar coaching", key="btn_confirm_pre_test"):
-                st.session_state.pre_test_done = True
-                st.success("¡Gracias! Sesión de coaching desbloqueada.")
-                st.rerun()
+            if not post_grit:
+                # Mostrar Post-test integrado
+                render_psychometric_survey(student_id, "post")
+            else:
+                # Mostrar agradecimiento final
+                st.markdown(f"""
+                <div class="forms-card" style="border-left-color: #2e7d32; background-color: #e8f5e9; padding: 1.5rem; border-radius: 8px; border-left-width: 5px; border-left-style: solid;">
+                    <h3 style="font-weight: 800; font-size: 1.25rem; color: #2e7d32; margin-top: 0; margin-bottom: 0.5rem;">✅ Participación Completada</h3>
+                    <p style="font-size: 0.95rem; margin-bottom: 0;">
+                        ¡Muchas felicidades! Has completado con éxito tus 5 sesiones de coaching y los cuestionarios del estudio. 
+                        Tus respuestas y registros han sido guardados de manera segura para la investigación doctoral de **Vania Alemán**.
+                        <br><br>
+                        Agradecemos enormemente tu tiempo y tu valiosa contribución.
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+                st.info("El chat se encuentra cerrado de manera definitiva. ¡Gracias!")
                 
-        # 3. CHAT DE SESIÓN ACTIVA
+        # 2. EVALUAR SI DEBE LLENAR EL PRE-TEST (Si pre_grit está vacío)
+        elif not student_data.get("pre_grit", ""):
+            render_psychometric_survey(student_id, "pre")
+            
+        # 3. SESIÓN ACTIVA (EXPERIMENTAL O CONTROL)
         else:
             session_num = int(current_session)
             session_info = SESSION_METADATA[session_num]
-            
-            # Cargar prompt de sistema compuesto (Prompt Base + Prompt específico de sesión)
-            active_system_prompt = BASE_SYSTEM_PROMPT + "\n" + session_info["prompt"]
+            grupo = student_data.get("grupo", "experimental")
             
             # Banner Informativo del Módulo Actual
             st.markdown(f"""
             <div class="session-banner">
-                <p style="margin: 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; color: #1e3c72; font-weight: 800;">Sesión Activa</p>
+                <p style="margin: 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; color: #1e3c72; font-weight: 800;">Sesión Activa ({grupo.capitalize()})</p>
                 <h3 style="margin: 0.2rem 0 0.4rem 0; font-weight: 800; color: #111;">{session_info['title']}</h3>
                 <p style="margin: 0; font-size: 0.95rem; color: #444;">{session_info['description']}</p>
             </div>
             """, unsafe_allow_html=True)
             
-            # Botón en la barra lateral del estudiante para finalizar y guardar la sesión
-            st.sidebar.markdown("---")
-            st.sidebar.markdown(f"### Control de la Sesión {session_num}")
-            if st.sidebar.button(f"💾 Guardar y Finalizar Sesión {session_num}", key=f"btn_finish_sess_{session_num}", help="Presiona aquí al terminar de chatear para guardar tu progreso."):
+            if grupo == "control":
+                # --- FLUJO GRUPO CONTROL (PLACEBO) ---
+                st.markdown("---")
+                st.markdown("### 📝 Bitácora de Reflexión Académica")
+                st.markdown(
+                    "Para esta sesión, es requisito realizar una reflexión escrita sobre tu semana académica, "
+                    "los obstáculos que has enfrentado y tus estrategias para superarlos. Al guardar, avanzarás "
+                    "automáticamente a la siguiente fase del estudio."
+                )
                 
-                # Avanzar sesión
-                next_session = str(session_num + 1) if session_num < 5 else "completed"
-                authorized_ids[student_id]["current_session"] = next_session
-                save_authorized_ids(authorized_ids)
+                reflection_text = st.text_area(
+                    "Escribe tu reflexión aquí (mínimo 30 palabras):",
+                    placeholder="Esta semana académica he aprendido que...",
+                    height=180,
+                    key=f"control_reflection_text_{session_num}"
+                )
                 
-                # Resetear el historial de mensajes de la pantalla
-                st.session_state.messages = []
+                words = reflection_text.strip().split()
+                word_count = len(words) if reflection_text.strip() else 0
+                st.markdown(f"**Palabras escritas:** `{word_count}` de un mínimo de `30` requeridas.")
                 
-                st.sidebar.success(f"¡Sesión {session_num} guardada con éxito!")
-                st.rerun()
+                if st.button("💾 Guardar y Finalizar Sesión", disabled=(word_count < 30), key=f"btn_control_submit_{session_num}"):
+                    # Registrar interacción en los logs
+                    log_interaction(
+                        student_id, 
+                        "control", 
+                        reflection_text, 
+                        "[GRUPO CONTROL - REFLEXIÓN REGISTRADA]", 
+                        False, 
+                        session_num
+                    )
+                    
+                    # Avanzar sesión
+                    next_session = str(session_num + 1) if session_num < 5 else "completed"
+                    authorized_ids[student_id]["current_session"] = next_session
+                    save_authorized_ids(authorized_ids)
+                    
+                    st.success("¡Tu reflexión ha sido guardada con éxito y tu progreso ha sido registrado!")
+                    st.rerun()
+            else:
+                # --- FLUJO GRUPO EXPERIMENTAL (COACHING INTERACTIVO CON IA) ---
+                # Cargar prompt de sistema compuesto (Prompt Base + Prompt específico de sesión)
+                active_system_prompt = BASE_SYSTEM_PROMPT + "\n" + session_info["prompt"]
                 
-            # Mostrar historial de chat de la sesión
-            for message in st.session_state.messages:
-                with st.chat_message(message["role"]):
-                    if "is_safety" in message and message["is_safety"]:
-                        st.markdown(f'<div class="safety-alert"><div class="safety-title">Alerta de Seguridad Activada</div>{message["content"]}</div>', unsafe_allow_html=True)
-                    else:
-                        st.markdown(message["content"])
+                # Botón en la barra lateral del estudiante para finalizar y guardar la sesión
+                st.sidebar.markdown("---")
+                st.sidebar.markdown(f"### Control de la Sesión {session_num}")
+                if st.sidebar.button(f"💾 Guardar y Finalizar Sesión {session_num}", key=f"btn_finish_sess_{session_num}", help="Presiona aquí al terminar de chatear para guardar tu progreso."):
+                    
+                    # Avanzar sesión
+                    next_session = str(session_num + 1) if session_num < 5 else "completed"
+                    authorized_ids[student_id]["current_session"] = next_session
+                    save_authorized_ids(authorized_ids)
+                    
+                    # Resetear el historial de mensajes de la pantalla
+                    st.session_state.messages = []
+                    
+                    st.sidebar.success(f"¡Sesión {session_num} guardada con éxito!")
+                    st.rerun()
+                    
+                # Mostrar historial de chat de la sesión
+                for message in st.session_state.messages:
+                    with st.chat_message(message["role"]):
+                        if "is_safety" in message and message["is_safety"]:
+                            st.markdown(f'<div class="safety-alert"><div class="safety-title">Alerta de Seguridad Activada</div>{message["content"]}</div>', unsafe_allow_html=True)
+                        else:
+                            st.markdown(message["content"])
 
-            # Entrada del Estudiante
-            if user_input := st.chat_input("Escribe tu respuesta o reflexión aquí..."):
-                
-                # Mostrar mensaje del usuario
-                st.session_state.messages.append({"role": "user", "content": user_input})
-                with st.chat_message("user"):
-                    st.markdown(user_input)
+                # Entrada del Estudiante
+                if user_input := st.chat_input("Escribe tu respuesta o reflexión aquí..."):
                     
-                # Evaluar Filtro de Seguridad (Local y Determinista - Capa 0)
-                safety_triggered = check_safety_filter(user_input)
-                
-                response_content = ""
-                is_safety_msg = False
-                
-                if safety_triggered:
-                    response_content = SAFETY_MESSAGE
-                    is_safety_msg = True
+                    # Mostrar mensaje del usuario
+                    st.session_state.messages.append({"role": "user", "content": user_input})
+                    with st.chat_message("user"):
+                        st.markdown(user_input)
+                        
+                    # Evaluar Filtro de Seguridad (Local y Determinista - Capa 0)
+                    safety_triggered = check_safety_filter(user_input)
                     
-                    log_interaction(student_id, mode, user_input, "[LÍNEA DE LA VIDA TRIGGERED] " + SAFETY_MESSAGE.replace("\n", " "), True, session_num)
+                    response_content = ""
+                    is_safety_msg = False
                     
-                    st.session_state.messages.append({"role": "assistant", "content": response_content, "is_safety": True})
-                    with st.chat_message("assistant"):
-                        st.markdown(f'<div class="safety-alert"><div class="safety-title">Alerta de Seguridad Activada</div>{response_content}</div>', unsafe_allow_html=True)
-                else:
-                    # Lógica normal si no se activa el filtro
-                    with st.chat_message("assistant"):
-                        with st.spinner("Pensando respuesta de coaching..."):
-                            if mode == "Modo Simulación (Sin API Key)":
-                                response_content = get_simulated_response(user_input, len(st.session_state.messages), session_num)
-                                st.markdown(response_content)
-                            else:
-                                if not api_key:
-                                    response_content = "⚠️ Error: Modo Gemini API seleccionado pero no se ha proporcionado una API Key en la barra lateral."
-                                    st.error(response_content)
+                    if safety_triggered:
+                        response_content = SAFETY_MESSAGE
+                        is_safety_msg = True
+                        
+                        log_interaction(student_id, mode, user_input, "[LÍNEA DE LA VIDA TRIGGERED] " + SAFETY_MESSAGE.replace("\n", " "), True, session_num)
+                        
+                        st.session_state.messages.append({"role": "assistant", "content": response_content, "is_safety": True})
+                        with st.chat_message("assistant"):
+                            st.markdown(f'<div class="safety-alert"><div class="safety-title">Alerta de Seguridad Activada</div>{response_content}</div>', unsafe_allow_html=True)
+                    else:
+                        # Lógica normal si no se activa el filtro
+                        with st.chat_message("assistant"):
+                            with st.spinner("Pensando respuesta de coaching..."):
+                                if mode == "Modo Simulación (Sin API Key)":
+                                    response_content = get_simulated_response(user_input, len(st.session_state.messages), session_num)
+                                    st.markdown(response_content)
                                 else:
-                                    try:
-                                        from google import genai
-                                        from google.genai import types
-                                        
-                                        client = genai.Client(api_key=api_key)
-                                        
-                                        contents = []
-                                        for msg in st.session_state.messages[:-1]:
-                                            role = "user" if msg["role"] == "user" else "model"
+                                    if not api_key:
+                                        response_content = "⚠️ Error: Modo Gemini API seleccionado pero no se ha proporcionado una API Key en la barra lateral."
+                                        st.error(response_content)
+                                    else:
+                                        try:
+                                            from google import genai
+                                            from google.genai import types
+                                            
+                                            client = genai.Client(api_key=api_key)
+                                            
+                                            contents = []
+                                            for msg in st.session_state.messages[:-1]:
+                                                role = "user" if msg["role"] == "user" else "model"
+                                                contents.append(
+                                                    types.Content(
+                                                        role=role,
+                                                        parts=[types.Part.from_text(text=msg["content"])]
+                                                    )
+                                                )
+                                            
                                             contents.append(
                                                 types.Content(
-                                                    role=role,
-                                                    parts=[types.Part.from_text(text=msg["content"])]
+                                                    role="user",
+                                                    parts=[types.Part.from_text(text=user_input)]
                                                 )
                                             )
-                                        
-                                        contents.append(
-                                            types.Content(
-                                                role="user",
-                                                parts=[types.Part.from_text(text=user_input)]
+                                            
+                                            response = client.models.generate_content(
+                                                model='gemini-2.5-flash',
+                                                contents=contents,
+                                                config=types.GenerateContentConfig(
+                                                    system_instruction=active_system_prompt,
+                                                    temperature=0.2,
+                                                ),
                                             )
-                                        )
-                                        
-                                        response = client.models.generate_content(
-                                            model='gemini-2.5-flash',
-                                            contents=contents,
-                                            config=types.GenerateContentConfig(
-                                                system_instruction=active_system_prompt,
-                                                temperature=0.2,
-                                            ),
-                                        )
-                                        response_content = response.text
-                                        st.markdown(response_content)
-                                        
-                                    except Exception as e:
-                                        response_content = f"❌ Error de conexión con Gemini API: {str(e)}"
-                                        st.error(response_content)
-                        
-                        st.session_state.messages.append({"role": "assistant", "content": response_content})
-                        log_interaction(student_id, mode, user_input, response_content, False, session_num)
+                                            response_content = response.text
+                                            st.markdown(response_content)
+                                            
+                                        except Exception as e:
+                                            response_content = f"❌ Error de conexión con Gemini API: {str(e)}"
+                                            st.error(response_content)
+                            
+                            st.session_state.messages.append({"role": "assistant", "content": response_content})
+                            log_interaction(student_id, mode, user_input, response_content, False, session_num)
