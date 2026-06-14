@@ -462,6 +462,11 @@ with st.sidebar:
                     file_name="chat_logs_tesis.csv",
                     mime="text/csv"
                 )
+        
+        # Botón para cerrar sesión de investigador
+        if st.button("🚪 Volver al Chat (Cerrar Sesión)"):
+            st.session_state["admin_pwd_widget"] = ""
+            st.rerun()
     else:
         # Configuración del Estudiante
         st.markdown("### Configuración Estudiante")
